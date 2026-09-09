@@ -8,6 +8,8 @@
   },
   "amenities": 1112,
   "roads": 6328,
+  "wards": 100,
+  "boundary_source": "Official portal KML: required_map.kml",
   "within_400_pct": 21.75,
   "within_800_pct": 43.18,
   "categories": {

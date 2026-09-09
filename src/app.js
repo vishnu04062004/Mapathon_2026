@@ -38,6 +38,7 @@ let metrics;
 let categoryLayers = {};
 let roadsLayer;
 let gridLayer;
+let wardsLayer;
 
 const setText = (id, value) => {
   const element = document.getElementById(id);
@@ -87,6 +88,7 @@ function pointLayerForCategory(category) {
 function renderMetrics() {
   setText("hero-800", Number(metrics.within_800_pct).toFixed(1) + "%");
   setText("stat-amenities", Number(metrics.amenities).toLocaleString());
+  setText("stat-wards", Number(metrics.wards).toLocaleString());
   setText("stat-roads", Number(metrics.roads).toLocaleString());
   setText("stat-400", Number(metrics.within_400_pct).toFixed(1) + "%");
   setText("stat-800", Number(metrics.within_800_pct).toFixed(1) + "%");
@@ -148,13 +150,31 @@ function setupLayers() {
     },
   }).addTo(map);
 
+  wardsLayer = L.geoJSON(window.__WARDS_DATA__, {
+    style: {
+      color: "#17212b",
+      weight: 1.3,
+      opacity: 0.62,
+      dashArray: "5 4",
+      fillColor: "#ffffff",
+      fillOpacity: 0.025,
+    },
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties;
+      const ward = escapeHtml(p.ward_lgd_name || p.sourcewardcode || "Unknown");
+      const zone = escapeHtml(p.zone || "Coimbatore");
+      layer.bindTooltip("Ward " + ward + " · " + zone, { sticky: true });
+      layer.bindPopup('<div class="amenity-popup"><h3>Ward ' + ward + '</h3><p>' + zone + ' · official portal boundary</p></div>');
+    },
+  }).addTo(map);
+
   Object.keys(LABELS).forEach((category) => {
     categoryLayers[category] = pointLayerForCategory(category).addTo(map);
   });
 
   L.control.layers(
     { "OpenStreetMap": basemap },
-    { "Proximity grid": gridLayer, "Road context": roadsLayer },
+    { "Proximity grid": gridLayer, "Official wards": wardsLayer, "Road context": roadsLayer },
     { collapsed: false, position: "topright" },
   ).addTo(map);
 
@@ -213,15 +233,17 @@ async function loadData() {
       fetch("./data/amenities.geojson"),
       fetch("./data/roads.geojson"),
       fetch("./data/grid.geojson"),
+      fetch("./data/wards.geojson"),
       fetch("./data/metrics.json"),
     ]);
     if (responses.some((response) => !response.ok)) throw new Error("A local data asset could not be loaded.");
-    [amenities, window.__ROADS_DATA__, window.__GRID_DATA__, metrics] = await Promise.all(responses.map((response) => response.json()));
+    [amenities, window.__ROADS_DATA__, window.__GRID_DATA__, window.__WARDS_DATA__, metrics] = await Promise.all(responses.map((response) => response.json()));
     renderMetrics();
     renderCategorySummary();
     renderCategoryFilters();
     setupLayers();
     document.getElementById("toggle-grid").addEventListener("change", (event) => event.target.checked ? map.addLayer(gridLayer) : map.removeLayer(gridLayer));
+    document.getElementById("toggle-wards").addEventListener("change", (event) => event.target.checked ? map.addLayer(wardsLayer) : map.removeLayer(wardsLayer));
     document.getElementById("toggle-roads").addEventListener("change", (event) => event.target.checked ? map.addLayer(roadsLayer) : map.removeLayer(roadsLayer));
     document.getElementById("search-form").addEventListener("submit", searchAmenity);
     document.getElementById("download-csv").addEventListener("click", downloadCsv);
@@ -234,4 +256,3 @@ async function loadData() {
 }
 
 loadData();
-
