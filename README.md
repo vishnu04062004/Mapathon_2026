@@ -82,6 +82,12 @@ The official ward layer contains 100 ward polygons with ward number, zone,
 LGD codes, and portal-provided geometry. Population values were not present in
 the supplied KML and are not inferred.
 
+### Reference links
+
+- [Coimbatore Corporation Ward Finder](https://coimbatorejunction.in/coimbatore-corporation/)
+- [CCMC official delimitation map](https://ccmc.gov.in/wardmap.html)
+- [Coimbatore ward number list reference](https://www.scribd.com/document/931435427/Coimbatore-Ward-List)
+
 For policy or planning use, the next analytical upgrade should intersect the
 layer with ward population, a pedestrian network, barriers, and facility
 capacity. The current limitation is displayed in the application so the map
@@ -118,4 +124,3 @@ netlify.toml               Netlify deployment configuration
 Map data © OpenStreetMap contributors, available under the Open Database
 License (ODbL). Leaflet is distributed under its BSD-2-Clause license. The
 project code is provided for educational and mapathon use.
-
