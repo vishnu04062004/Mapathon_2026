@@ -1,0 +1,14 @@
+{
+  "name": "coimbatore-public-amenities-map",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Deployable Coimbatore public amenities mapathon project",
+  "scripts": {
+    "build": "python practice.py",
+    "serve": "python -m http.server 4173",
+    "check": "python -m py_compile practice.py"
+  },
+  "dependencies": {
+    "leaflet": "1.9.4"
+  }
+}

@@ -1,186 +1,196 @@
-# ============================================================
-# COIMBATORE PUBLIC AMENITIES
-# Mapping and Accessibility Analysis
-# ============================================================
+"""Build deployable Coimbatore Mapathon data assets.
 
-import osmnx as ox
-import geopandas as gpd
-import pandas as pd
-import numpy as np
-import folium
-import time
-from shapely.geometry import Point, Polygon
-from shapely.ops import unary_union
-from branca.colormap import LinearColormap
-import warnings
+Run:
+    python practice.py
 
-warnings.filterwarnings("ignore")
+The front-end is a static app. This builder normalizes the cached OSM snapshot
+into small, explicit GeoJSON layers and a metrics manifest.
+"""
+from __future__ import annotations
 
-# ------------------------------------------------------------
-# 1. SETTINGS
-# ------------------------------------------------------------
+import csv
+import json
+import math
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
-PLACE = "Coimbatore, Tamil Nadu, India"
-
-# Accessibility radius in metres
-ACCESS_RADIUS = 1000
-
-# Grid size in metres
-GRID_SIZE = 500
-
-# ------------------------------------------------------------
-# 2. GET COIMBATORE CITY BOUNDARY
-# ------------------------------------------------------------
-
-print("Downloading Coimbatore boundary...")
-
-boundary = ox.geocode_to_gdf(PLACE)
-
-# Convert to a projected CRS for metre-based calculations
-boundary_proj = boundary.to_crs(epsg=32643)
-
-city_polygon = boundary_proj.geometry.iloc[0]
-
-# Map centre
-center_lat = boundary.geometry.centroid.iloc[0].y
-center_lon = boundary.geometry.centroid.iloc[0].x
-
-print("Boundary downloaded.")
-
-# ------------------------------------------------------------
-# 3. DOWNLOAD AMENITIES FROM OPENSTREETMAP
-# ------------------------------------------------------------
-
-amenity_tags = {
-    "Hospitals": {"amenity": ["hospital"]},
-    "Schools & Colleges": {"amenity": ["school", "college", "university"]},
-    "Police Stations": {"amenity": ["police"]},
-    "Bus Stops": {"highway": ["bus_stop"]},
-    "ATMs & Banks": {"amenity": ["atm", "bank"]},
-    "Public Toilets": {"amenity": ["toilets"]},
-    "Parks": {"leisure": ["park"]},
-    "Markets": {"amenity": ["marketplace"]}
+ROOT = Path(__file__).resolve().parent
+SOURCE_AMENITIES = ROOT / "outputs" / "amenities.geojson"
+SOURCE_ROADS = ROOT / "data" / "osm_roads.json"
+PUBLIC = ROOT / "data"
+BBOX = {"west": 76.82, "south": 10.90, "east": 77.10, "north": 11.12}
+CATEGORIES = {
+    "health": "Health",
+    "education": "Education",
+    "civic": "Civic & safety",
+    "community": "Community",
+    "recreation": "Recreation",
+    "mobility": "Mobility",
+    "other": "Other",
+}
+MAJOR_ROADS = {
+    "motorway", "trunk", "primary", "secondary", "tertiary",
+    "motorway_link", "trunk_link", "primary_link",
+    "secondary_link", "tertiary_link",
 }
 
-amenities = {}
 
-for category, tags in amenity_tags.items():
-    print(f"Downloading {category}...")
-    success = False
-    retries = 3
-    for i in range(retries):
-        try:
-            gdf = ox.features_from_polygon(boundary.geometry.iloc[0], tags)
-            if not gdf.empty:
-                gdf = gdf[gdf.geometry.notna()].copy()
-                gdf = gdf.to_crs(epsg=32643)
-                gdf["geometry"] = gdf.geometry.representative_point()
-                gdf = gdf.drop_duplicates(subset=["geometry"])
-                amenities[category] = gdf
-                print(f"   Found {len(gdf)} locations")
-            else:
-                amenities[category] = gpd.GeoDataFrame(geometry=[], crs="EPSG:32643")
-                print(f"   Found 0 locations")
-            success = True
-            break
-        except Exception as e:
-            print(f"   Attempt {i+1} failed: {e}")
-            time.sleep(2 ** i) # Exponential backoff
-    
-    if not success:
-        print(f"   Final failure for {category}. Skipping.")
-        amenities[category] = gpd.GeoDataFrame(geometry=[], crs="EPSG:32643")
+def local_xy(lon: float, lat: float) -> tuple[float, float]:
+    lat0 = (BBOX["south"] + BBOX["north"]) / 2
+    return (
+        (lon - BBOX["west"]) * 111_320 * math.cos(math.radians(lat0)),
+        (lat - BBOX["south"]) * 111_320,
+    )
 
-# ------------------------------------------------------------
-# 4. CREATE ACCESSIBILITY GRID
-# ------------------------------------------------------------
 
-print("\nCreating accessibility grid...")
-minx, miny, maxx, maxy = city_polygon.bounds
-cells = []
-x = minx
-while x < maxx:
-    y = miny
-    while y < maxy:
-        cell = Polygon([(x, y), (x + GRID_SIZE, y), (x + GRID_SIZE, y + GRID_SIZE), (x, y + GRID_SIZE)])
-        if cell.intersects(city_polygon):
-            clipped = cell.intersection(city_polygon)
-            if not clipped.is_empty:
-                cells.append(clipped)
-        y += GRID_SIZE
-    x += GRID_SIZE
+def read_amenities() -> list[dict[str, Any]]:
+    source = json.loads(SOURCE_AMENITIES.read_text(encoding="utf-8"))
+    clean: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for feature in source.get("features", []):
+        props = feature.get("properties", {})
+        coords = feature.get("geometry", {}).get("coordinates", [])
+        if len(coords) != 2:
+            continue
+        item = {
+            "osm_id": str(props.get("osm_id") or ""),
+            "name": str(props.get("name") or props.get("kind") or "Unnamed mapped amenity"),
+            "kind": str(props.get("kind") or "public amenity"),
+            "category": str(props.get("category") or "other"),
+            "lon": float(coords[0]),
+            "lat": float(coords[1]),
+        }
+        identity = item["osm_id"] or (
+            item["name"], item["kind"], round(item["lon"], 7), round(item["lat"], 7)
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        clean.append(item)
+    return clean
 
-grid = gpd.GeoDataFrame({"geometry": cells}, crs="EPSG:32643")
 
-# ------------------------------------------------------------
-# 5. CALCULATE ACCESSIBILITY SCORE
-# ------------------------------------------------------------
-
-essential_categories = ["Hospitals", "Schools & Colleges", "Police Stations", "Bus Stops"]
-service_areas = {}
-for category in essential_categories:
-    gdf = amenities[category]
-    if len(gdf) > 0:
-        buffers = gdf.geometry.buffer(ACCESS_RADIUS)
-        service_areas[category] = unary_union(buffers)
-    else:
-        service_areas[category] = None
-
-grid["centroid"] = grid.geometry.centroid
-grid["Accessibility Score"] = 0
-for category in essential_categories:
-    service = service_areas[category]
-    if service is not None:
-        grid.loc[grid["centroid"].apply(service.contains), "Accessibility Score"] += 1
-
-# ------------------------------------------------------------
-# 6. CLASSIFY ACCESSIBILITY
-# ------------------------------------------------------------
-
-def classify(score):
-    if score == 0: return "Very Poor"
-    elif score == 1: return "Poor"
-    elif score == 2: return "Moderate"
-    elif score == 3: return "Good"
-    else: return "Very Good"
-
-grid["Accessibility"] = grid["Accessibility Score"].apply(classify)
-print("Accessibility analysis completed.")
-
-# ------------------------------------------------------------
-# 7. CREATE FOLIUM MAP
-# ------------------------------------------------------------
-
-m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles="CartoDB positron")
-
-score_colors = {0: "#d73027", 1: "#fc8d59", 2: "#fee08b", 3: "#91cf60", 4: "#1a9850"}
-
-for _, row in grid.iterrows():
-    score = int(row["Accessibility Score"])
-    geom_wgs84 = gpd.GeoSeries([row.geometry], crs="EPSG:32643").to_crs(epsg=4326).iloc[0]
-    feature_geojson = {
-        "type": "Feature",
-        "geometry": geom_wgs84.__geo_interface__,
-        "properties": {"score": score, "accessibility": row["Accessibility"]}
+def feature_collection(features: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    return {
+        "type": "FeatureCollection",
+        "name": name,
+        "license": "OpenStreetMap data © OpenStreetMap contributors, ODbL 1.0",
+        "features": features,
     }
-    folium.GeoJson(
-        feature_geojson,
-        style_function=lambda feature: {
-            "fillColor": score_colors[feature["properties"]["score"]],
-            "color": "white", "weight": 0.3, "fillOpacity": 0.45
-        },
-        tooltip=folium.GeoJsonTooltip(fields=["accessibility"], aliases=["Accessibility"], labels=True)
-    ).add_to(m)
 
-for category, gdf in amenities.items():
-    layer = folium.FeatureGroup(name=category)
-    color = {"Hospitals":"red", "Schools & Colleges":"blue", "Police Stations":"black", "Bus Stops":"orange", "ATMs & Banks":"purple", "Public Toilets":"darkgreen", "Parks":"green", "Markets":"cadetblue"}[category]
-    icon = {"Hospitals":"plus-square", "Schools & Colleges":"graduation-cap", "Police Stations":"shield", "Bus Stops":"bus", "ATMs & Banks":"money-bill", "Public Toilets":"restroom", "Parks":"tree", "Markets":"shopping-cart"}[category]
-    for _, row in gdf.head(1000).iterrows():
-        p = gpd.GeoSeries([row.geometry], crs="EPSG:32643").to_crs(epsg=4326).iloc[0]
-        folium.Marker(location=[p.y, p.x], tooltip=str(row.get("name", category)), icon=folium.Icon(color=color, icon=icon, prefix="fa")).add_to(layer)
-    layer.add_to(m)
 
-folium.LayerControl(collapsed=False).add_to(m)
-m.save("coimbatore_public_amenities_map.html")
-print("\nMAP CREATED SUCCESSFULLY: coimbatore_public_amenities_map.html")
+def amenities_geojson(amenities: list[dict[str, Any]]) -> dict[str, Any]:
+    features = []
+    for item in amenities:
+        properties = {k: v for k, v in item.items() if k not in {"lon", "lat"}}
+        features.append({
+            "type": "Feature",
+            "properties": properties,
+            "geometry": {"type": "Point", "coordinates": [item["lon"], item["lat"]]},
+        })
+    return feature_collection(features, "Coimbatore mapped public amenities")
+
+
+def roads_geojson() -> tuple[dict[str, Any], int]:
+    raw = json.loads(SOURCE_ROADS.read_text(encoding="utf-8"))
+    features = []
+    residential_seen = 0
+    for element in raw.get("elements", []):
+        tags = element.get("tags", {})
+        highway = str(tags.get("highway", ""))
+        if highway not in MAJOR_ROADS:
+            if highway != "residential":
+                continue
+            residential_seen += 1
+            if residential_seen % 8:
+                continue
+        geometry = element.get("geometry", [])
+        if len(geometry) < 2:
+            continue
+        coordinates = [[float(point["lon"]), float(point["lat"])] for point in geometry]
+        features.append({
+            "type": "Feature",
+            "properties": {
+                "highway": highway,
+                "name": str(tags.get("name") or "Unnamed road"),
+            },
+            "geometry": {"type": "LineString", "coordinates": coordinates},
+        })
+    return feature_collection(features, "Coimbatore road context"), len(features)
+
+
+def grid_geojson(amenities: list[dict[str, Any]], columns: int = 56, rows: int = 44) -> tuple[dict[str, Any], float, float]:
+    points = [local_xy(a["lon"], a["lat"]) for a in amenities]
+    width = (BBOX["east"] - BBOX["west"]) / columns
+    height = (BBOX["north"] - BBOX["south"]) / rows
+    features = []
+    within_400 = 0
+    within_800 = 0
+    total = columns * rows
+    for row in range(rows):
+        for col in range(columns):
+            west = BBOX["west"] + col * width
+            east = west + width
+            north = BBOX["north"] - row * height
+            south = north - height
+            lon = (west + east) / 2
+            lat = (south + north) / 2
+            x, y = local_xy(lon, lat)
+            distance = min(
+                (math.hypot(x - px, y - py) for px, py in points),
+                default=float("inf"),
+            )
+            if distance <= 400:
+                within_400 += 1
+            if distance <= 800:
+                within_800 += 1
+            if distance > 800:
+                continue
+            features.append({
+                "type": "Feature",
+                "properties": {
+                    "nearest_m": round(distance, 1),
+                    "band": "0–400 m" if distance <= 400 else "400–800 m",
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
+                },
+            })
+    return feature_collection(features, "Indicative proximity grid"), within_400 / total * 100, within_800 / total * 100
+
+
+def main() -> None:
+    PUBLIC.mkdir(exist_ok=True)
+    amenities = read_amenities()
+    roads, road_count = roads_geojson()
+    grid, within_400, within_800 = grid_geojson(amenities)
+    (PUBLIC / "amenities.geojson").write_text(json.dumps(amenities_geojson(amenities), ensure_ascii=False), encoding="utf-8")
+    (PUBLIC / "roads.geojson").write_text(json.dumps(roads, ensure_ascii=False), encoding="utf-8")
+    (PUBLIC / "grid.geojson").write_text(json.dumps(grid, ensure_ascii=False), encoding="utf-8")
+    metrics = {
+        "snapshot": "2026-09-09",
+        "bbox": BBOX,
+        "amenities": len(amenities),
+        "roads": road_count,
+        "within_400_pct": round(within_400, 2),
+        "within_800_pct": round(within_800, 2),
+        "categories": dict(Counter(item["category"] for item in amenities)),
+    }
+    (PUBLIC / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    with (ROOT / "outputs" / "summary.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["metric", "value", "interpretation"])
+        writer.writerow(["mapped amenities", len(amenities), "deduplicated OSM public-facing records"])
+        writer.writerow(["road context segments", road_count, "major roads plus sampled residential context"])
+        writer.writerow(["grid within 400 m", f"{within_400:.2f}%", "regular grid cells near a mapped amenity"])
+        writer.writerow(["grid within 800 m", f"{within_800:.2f}%", "regular grid cells near a mapped amenity"])
+    print(f"Built {len(amenities):,} amenities, {road_count:,} road segments")
+    print(f"Indicative grid proximity: {within_400:.1f}% within 400 m; {within_800:.1f}% within 800 m")
+
+
+if __name__ == "__main__":
+    main()
+

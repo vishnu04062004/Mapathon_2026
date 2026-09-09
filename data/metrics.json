@@ -1,0 +1,22 @@
+{
+  "snapshot": "2026-09-09",
+  "bbox": {
+    "west": 76.82,
+    "south": 10.9,
+    "east": 77.1,
+    "north": 11.12
+  },
+  "amenities": 1112,
+  "roads": 6328,
+  "within_400_pct": 21.75,
+  "within_800_pct": 43.18,
+  "categories": {
+    "education": 291,
+    "civic": 73,
+    "health": 443,
+    "recreation": 217,
+    "mobility": 26,
+    "community": 50,
+    "other": 12
+  }
+}

@@ -1,5 +1,5 @@
 metric,value,interpretation
-mapped amenities,1112,OSM public-facing amenity records in the frame
-mapped road segments,43798,OSM road geometries used for cartographic context
-grid within 400 m,21.39%,share of regular analysis cells near a mapped amenity
-grid within 800 m,42.71%,share of regular analysis cells near a mapped amenity
+mapped amenities,1112,deduplicated OSM public-facing records
+road context segments,6328,major roads plus sampled residential context
+grid within 400 m,21.75%,regular grid cells near a mapped amenity
+grid within 800 m,43.18%,regular grid cells near a mapped amenity

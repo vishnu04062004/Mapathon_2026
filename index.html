@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17212b">
+  <meta name="description" content="Coimbatore public amenities and indicative proximity screening map.">
+  <title>Coimbatore | Public amenities map</title>
+  <link rel="stylesheet" href="./vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="./src/styles.css">
+</head>
+<body>
+  <div id="app-shell">
+    <aside class="sidebar" aria-label="Map information and controls">
+      <header class="brand">
+        <p class="eyebrow">COIMBATORE <span>|</span> MAPPED AMENITIES</p>
+        <h1>Where everyday services are mapped</h1>
+        <p class="lede">A transparent screening map of public-facing OpenStreetMap records across the urban study frame.</p>
+      </header>
+      <section class="hero-stat" aria-label="Eight hundred metre proximity statistic"><strong id="hero-800">—</strong><span>of regular grid cells fall within 800 m of a mapped amenity</span></section>
+      <section class="panel-section"><h2>At a glance</h2><dl class="stats"><div><dt>Mapped amenities</dt><dd id="stat-amenities">—</dd></div><div><dt>Road context segments</dt><dd id="stat-roads">—</dd></div><div><dt>Within 400 m</dt><dd id="stat-400">—</dd></div><div><dt>Within 800 m</dt><dd id="stat-800">—</dd></div></dl></section>
+      <section class="panel-section"><h2>What is mapped?</h2><div id="category-summary" class="category-summary"></div></section>
+      <section class="panel-section"><h2>Layers</h2><label class="layer-toggle"><input id="toggle-grid" type="checkbox" checked><span>Indicative proximity grid</span></label><label class="layer-toggle"><input id="toggle-roads" type="checkbox" checked><span>Road context</span></label><div id="category-filters" class="category-filters"></div></section>
+      <section class="panel-section"><h2>Find a mapped place</h2><form id="search-form" class="search-form"><label class="sr-only" for="search-input">Search amenities</label><input id="search-input" type="search" placeholder="Hospital, school, park…" autocomplete="off"><button type="submit">Find</button></form><p id="search-status" class="search-status" aria-live="polite"></p><button id="download-csv" class="secondary-button" type="button">Download mapped amenities CSV</button></section>
+      <section class="panel-section note-section"><h2>Interpretation</h2><p>The proximity layer is a regular-grid screening measure using straight-line distance. It is not population-weighted, network-routed, or a measure of service capacity.</p><p class="source">Source: OpenStreetMap contributors via Overpass API. Data snapshot: <span id="snapshot">—</span>. ODbL 1.0.</p></section>
+      <p id="load-status" class="load-status" role="status">Loading map data…</p>
+    </aside>
+    <main class="map-area">
+      <div class="map-heading"><div><strong>PUBLIC AMENITIES | ACCESSIBILITY SCREENING</strong><span>Coimbatore urban study frame | deployment-ready analytical map</span></div><span class="status-pill"><i></i>Data loaded locally</span></div>
+      <div id="map" aria-label="Interactive map of Coimbatore public amenities"></div>
+      <div class="map-legend" aria-label="Map legend"><div><span class="legend-swatch near"></span>0–400 m</div><div><span class="legend-swatch far"></span>400–800 m</div><div><span class="legend-dot"></span>Mapped amenity</div></div>
+      <div class="map-method">Drag to pan · scroll or +/− to zoom · select a category to focus</div>
+    </main>
+  </div>
+  <script src="./vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
